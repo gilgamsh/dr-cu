@@ -4,4 +4,7 @@ debug
 run*/
 scripts/__pycache__
 tags
+*.guide
+*.lef
+*.def
 
