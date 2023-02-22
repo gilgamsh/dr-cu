@@ -7,4 +7,7 @@ tags
 *.guide
 *.lef
 *.def
-
+*.tgz
+*.tar.gz
+*.tar
+*.swp
