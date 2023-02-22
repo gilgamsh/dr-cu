@@ -115,6 +115,7 @@ void runISPD18Flow(const boost::program_options::variables_map& vm) {
     db::setting.adapt();
     Router router;
     router.run();
+    database.printFinalResult();
     database.writeNetTopo(db::setting.outputFile + ".topo");
     database.clear();
     database.writeDEF(db::setting.outputFile);

@@ -61,6 +61,19 @@ public:
     void clearResult();
     void stash();
     void reset();
+
+    
+
+    void printFinalResult(ostream& os) const {
+        os << "Net " << getName() << ":\n";
+        os << "  # of wire segments: " << defWireSegments.size() << "\n";
+        for (const auto& seg : defWireSegments) {
+            os << "  layer: " << seg.clsLayerName << " width: " << seg.clsRoutedWidth << "\n";
+            for (const auto& pt : seg.clsRoutingPoints) {
+               os << "clsPos:" << pt.clsPos << " clsRect:" << pt.clsRect <<  " clsVia:" << pt.clsViaName << "\n";
+            }
+        }
+    };
 };
 
 class NetList {
@@ -69,6 +82,11 @@ public:
 
     void init(RsynService& rsynService);
     void writeNetTopo(const std::string& filename);
+    void printFinalResult(ostream& os= std::cout) const {
+        for (const auto& net : nets) {
+            net.printFinalResult(os);
+        }
+    };
 };
 
 }  // namespace db
