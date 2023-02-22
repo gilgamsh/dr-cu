@@ -75,7 +75,7 @@ public:
     vector<vector<bool>> mergeLUTs(const vector<vector<vector<bool>>>& LUTs);
     vector<vector<vector<bool>>> mergeLUTsCP(const vector<vector<vector<vector<bool>>>>& LUTs);
 
-protected:
+public:
     vector<MetalLayer> layers;
     vector<CutLayer> cutLayers;
 

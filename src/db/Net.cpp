@@ -30,6 +30,12 @@ void NetBase::postOrderVisitGridTopo(const std::function<void(std::shared_ptr<Gr
     }
 }
 
+void NetBase::postOrderVisitGridTopo_copy(const std::function<void(std::shared_ptr<GridSteiner>)>& visit) const {
+    for (const std::shared_ptr<GridSteiner>& tree : gridTopo_copy) {
+        GridSteiner::postOrder(tree, visit);
+    }
+}
+
 void NetBase::printBasics(ostream& os) const {
     os << "Net " << getName() << " (idx = " << idx << ") with " << numOfPins() << " pins " << std::endl;
     for (int i = 0; i < numOfPins(); ++i) {
@@ -62,6 +68,21 @@ void NetBase::printResult(ostream& os) const {
     }
     os << "extend seg: " << std::endl;
     postOrderVisitGridTopo([&](std::shared_ptr<GridSteiner> node) {
+        if (node->extWireSeg) {
+            os << *(node->extWireSeg) << " ";
+        }
+    });
+    os << std::endl;
+}
+
+void NetBase::printOldResult(ostream &os) const {
+    os << "old grid topo: " << std::endl;
+    for (const auto& tree : gridTopo_copy) {
+        tree->printTree(os);
+        os << std::endl;
+    }
+    os << "old extend seg: " << std::endl;
+    postOrderVisitGridTopo_copy([&](std::shared_ptr<GridSteiner> node) {
         if (node->extWireSeg) {
             os << *(node->extWireSeg) << " ";
         }

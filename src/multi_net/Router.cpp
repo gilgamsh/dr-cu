@@ -1,6 +1,8 @@
 #include "Router.h"
 #include "Scheduler.h"
 
+#include <fstream>
+
 const MTStat& MTStat::operator+=(const MTStat& rhs) {
     auto dur = rhs.durations;
     std::sort(dur.begin(), dur.end());
@@ -28,6 +30,7 @@ ostream& operator<<(ostream& os, const MTStat mtStat) {
 
 void Router::run() {
     allNetStatus.resize(database.nets.size(), db::RouteStatus::FAIL_UNPROCESSED);
+    init_layersToGrids();
     for (iter = 0; iter < db::setting.rrrIterLimit; iter++) {
         log() << std::endl;
         log() << "################################################################" << std::endl;
@@ -57,6 +60,7 @@ void Router::run() {
             db::rrrIterSetting.print();
         }
         route(netsToRoute);
+        recordNetsToRoute_after(netsToRoute, iter);
         log() << std::endl;
         log() << "Finish RRR iteration " << iter << std::endl;
         log() << "MEM: cur=" << utils::mem_use::get_current() << "MB, peak=" << utils::mem_use::get_peak() << "MB"
@@ -275,4 +279,79 @@ void Router::printStat(bool major) {
     }
     log() << "----------------------------------------------------------------" << std::endl;
     log() << std::endl;
+}
+
+void Router::recordNetsToRoute_before(const vector<int>& netsToRoute) {
+    log() << "recordNetsToRoute_before: "<<"\n";
+    for (int netIdx : netsToRoute) {
+        const auto& net = database.nets[netIdx];
+        net.printResult(std::cout);
+    }
+    log() << std::endl;
+}
+
+void Router::recordNetsToRoute_after(const vector<int>& netsToRoute,int iter) {
+    auto filename = db::setting.outputFile + ".iter" + std::to_string(iter) + ".txt";
+    for(auto& item : layersToGridsInUse){
+        item = 0;
+    }
+    nets.clear();
+    for (int netIdx : netsToRoute) {
+        const auto& net = database.nets[netIdx];
+        for (const auto& tree: net.gridTopo){
+            nets.emplace_back();
+            auto& net = nets.back();
+            tree->preOrder(tree, [&](std::shared_ptr<db::GridSteiner> node) {
+                for(const auto& child : node->children){
+                    auto fa_layerIdx = node->layerIdx;
+                    auto fa_trackIdx = node->trackIdx;
+                    auto fa_crossPointIdx = node->crossPointIdx;
+                    auto ch_layerIdx = child->layerIdx;
+                    auto ch_trackIdx = child->trackIdx;
+                    auto ch_crossPointIdx = child->crossPointIdx;
+                    Coord fa_coord = {fa_layerIdx, fa_trackIdx, fa_crossPointIdx};
+                    Coord ch_coord = {ch_layerIdx, ch_trackIdx, ch_crossPointIdx};
+                    net.emplace_back(fa_coord, ch_coord);
+                    if (fa_layerIdx == ch_layerIdx){
+
+                        if (fa_trackIdx == ch_trackIdx){
+                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_crossPointIdx - ch_crossPointIdx+1);
+                        }
+                        if (fa_trackIdx == ch_crossPointIdx) {
+                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_crossPointIdx - ch_trackIdx+1);
+                        }
+                        if (fa_crossPointIdx == ch_trackIdx) {
+                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_trackIdx - ch_crossPointIdx+1);
+                        }
+                    }
+
+                }
+            });
+        }
+    }
+
+    std::ofstream fout(filename);
+    fout << "layersToGrids: "<<"\n";
+    for (int i = 0; i < layersToGrids.size(); i++){
+        fout << layersToGrids[i] << " ";
+    }
+    fout << std::endl;
+    fout << "layersToGridsInUse: "<<"\n";
+    for (int i = 0; i < layersToGridsInUse.size(); i++){
+        fout << layersToGridsInUse[i] << " ";
+    }
+    fout << std::endl;
+    for (int i = 0; i < layersToGrids.size(); i++){
+        if (layersToGrids[i] != 0){
+            fout << "layer " << i << " reroute utilization: " << (double)layersToGridsInUse[i]/layersToGrids[i] << std::endl;
+        }
+    }
+    fout << std::endl;
+    fout << "nets: "<<"\n";
+    for (int i = 0; i < nets.size(); i++){
+        fout << "net " << i << ":\n";
+        for (int j = 0; j < nets[i].size(); j++){
+            fout << nets[i][j]<< "\n";
+        }
+    }
 }

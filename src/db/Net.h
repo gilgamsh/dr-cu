@@ -27,6 +27,8 @@ public:
     vector<std::shared_ptr<GridSteiner>> gridTopo;
     vector<std::shared_ptr<GridSteiner>> gridTopo_copy;
     void postOrderVisitGridTopo(const std::function<void(std::shared_ptr<GridSteiner>)>& visit) const;
+    void postOrderVisitGridTopo_copy(const std::function<void(std::shared_ptr<GridSteiner>)>& visit) const;
+
 
     // print
     void printBasics(ostream& os) const;
@@ -34,7 +36,9 @@ public:
     void print(ostream& os = std::cout) const {
         printBasics(os);
         printResult(os);
-    }
+    };
+    void printOldResult(ostream& os) const;
+
 };
 
 class Net : public NetBase {
@@ -62,7 +66,7 @@ public:
     void stash();
     void reset();
 
-    
+
 
     void printFinalResult(ostream& os) const {
         os << "Net " << getName() << ":\n";
