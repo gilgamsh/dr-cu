@@ -5,6 +5,8 @@
 # Specify the minimum version for CMake
 cmake_minimum_required(VERSION 3.1.0)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Message
 message(STATUS "ISPD19 DR CUHK")
 message(STATUS ${CMAKE_CURRENT_SOURCE_DIR})

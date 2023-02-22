@@ -4,4 +4,10 @@ debug
 run*/
 scripts/__pycache__
 tags
-
+*.guide
+*.lef
+*.def
+*.tgz
+*.tar.gz
+*.tar
+*.swp

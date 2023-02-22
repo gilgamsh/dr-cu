@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse, os
 
@@ -52,7 +52,7 @@ run('cp -u -R {} {}'.format(run_files, args.run_dir))
 
 # make
 for target in build_targets:
-    run('cmake --build {} --target {} -- {}'.format(args.build_dir, target, args.make_options))
+    run('cmake --build {}  {}'.format(args.build_dir,  args.make_options))
 cp_targets = all_targets if build_targets == [''] else build_targets
 for target in cp_targets:
     run('cp -u {}/{} {}'.format(args.build_dir, target, args.run_dir))
