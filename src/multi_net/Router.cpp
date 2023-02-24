@@ -282,7 +282,8 @@ void Router::printStat(bool major) {
 }
 
 void Router::recordNetsToRoute_before(const vector<int>& netsToRoute) {
-    log() << "recordNetsToRoute_before: "<<"\n";
+    log() << "recordNetsToRoute_before: "
+          << "\n";
     for (int netIdx : netsToRoute) {
         const auto& net = database.nets[netIdx];
         net.printResult(std::cout);
@@ -290,19 +291,19 @@ void Router::recordNetsToRoute_before(const vector<int>& netsToRoute) {
     log() << std::endl;
 }
 
-void Router::recordNetsToRoute_after(const vector<int>& netsToRoute,int iter) {
+void Router::recordNetsToRoute_after(const vector<int>& netsToRoute, int iter) {
     auto filename = db::setting.outputFile + ".iter" + std::to_string(iter) + ".txt";
-    for(auto& item : layersToGridsInUse){
+    for (auto& item : layersToGridsInUse) {
         item = 0;
     }
     nets.clear();
     for (int netIdx : netsToRoute) {
         const auto& net = database.nets[netIdx];
-        for (const auto& tree: net.gridTopo){
+        for (const auto& tree : net.gridTopo) {
             nets.emplace_back();
             auto& net = nets.back();
             tree->preOrder(tree, [&](std::shared_ptr<db::GridSteiner> node) {
-                for(const auto& child : node->children){
+                for (const auto& child : node->children) {
                     auto fa_layerIdx = node->layerIdx;
                     auto fa_trackIdx = node->trackIdx;
                     auto fa_crossPointIdx = node->crossPointIdx;
@@ -312,46 +313,54 @@ void Router::recordNetsToRoute_after(const vector<int>& netsToRoute,int iter) {
                     Coord fa_coord = {fa_layerIdx, fa_trackIdx, fa_crossPointIdx};
                     Coord ch_coord = {ch_layerIdx, ch_trackIdx, ch_crossPointIdx};
                     net.emplace_back(fa_coord, ch_coord);
-                    if (fa_layerIdx == ch_layerIdx){
-
-                        if (fa_trackIdx == ch_trackIdx){
-                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_crossPointIdx - ch_crossPointIdx+1);
+                        if (fa_trackIdx == ch_trackIdx) {
+                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_crossPointIdx - ch_crossPointIdx + 1);
                         }
                         if (fa_trackIdx == ch_crossPointIdx) {
-                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_crossPointIdx - ch_trackIdx+1);
+                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_crossPointIdx - ch_trackIdx + 1);
                         }
                         if (fa_crossPointIdx == ch_trackIdx) {
-                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_trackIdx - ch_crossPointIdx+1);
+                            layersToGridsInUse[fa_layerIdx] += std::abs(fa_trackIdx - ch_crossPointIdx + 1);
                         }
-                    }
-
                 }
             });
         }
     }
 
     std::ofstream fout(filename);
-    fout << "layersToGrids: "<<"\n";
-    for (int i = 0; i < layersToGrids.size(); i++){
+    fout << "layersToGrids: "
+         << "\n";
+    for (int i = 0; i < layersToGrids.size(); i++) {
         fout << layersToGrids[i] << " ";
     }
     fout << std::endl;
-    fout << "layersToGridsInUse: "<<"\n";
-    for (int i = 0; i < layersToGridsInUse.size(); i++){
+    fout << "layersToGridsInUse: "
+         << "\n";
+    for (int i = 0; i < layersToGridsInUse.size(); i++) {
         fout << layersToGridsInUse[i] << " ";
     }
     fout << std::endl;
-    for (int i = 0; i < layersToGrids.size(); i++){
-        if (layersToGrids[i] != 0){
-            fout << "layer " << i << " reroute utilization: " << (double)layersToGridsInUse[i]/layersToGrids[i] << std::endl;
+
+    for (int i = 0; i < layersToGrids.size(); i++) {
+        if (layersToGrids[i] != 0) {
+            fout << "layer " << i << " reroute utilization: " << (double)layersToGridsInUse[i] / layersToGrids[i]
+                 << std::endl;
         }
     }
     fout << std::endl;
-    fout << "nets: "<<"\n";
-    for (int i = 0; i < nets.size(); i++){
-        fout << "net " << i << ":\n";
-        for (int j = 0; j < nets[i].size(); j++){
-            fout << nets[i][j]<< "\n";
-        }
+    for (int i = 0; i < layersToGrids.size(); i++) {
+        fout << "layer " << i << " " << database.layers[i].numTracks() << " " << database.layers[i].numCrossPoints() << "\n";
     }
+    fout << std::endl;
+    // fout << "nets: "
+    //      << "\n";
+    // for (int i = 0; i < nets.size(); i++) {
+    //     fout << "net " << i << ":\n";
+    //     using std::get;
+    //     for (int j = 0; j < nets[i].size(); j++) {
+    //         fout << get<0>(nets[i][j].first) << " " << get<1>(nets[i][j].first) << " " << get<2>(nets[i][j].first) << " "
+    //              << get<0>(nets[i][j].second) << " " << get<1>(nets[i][j].second) << " " << get<2>(nets[i][j].second)
+    //              << "\n";
+    //     }
+    // }
 }
