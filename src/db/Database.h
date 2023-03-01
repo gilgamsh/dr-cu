@@ -29,6 +29,7 @@ public:
     void writeDEFVia(Net& dbNet, const utils::PointT<DBU>& point, const ViaType& viaType, int layerIdx);
     void writeDEFFillRect(Net& dbNet, const utils::BoxT<DBU>& rect, const int layerIdx);
     void writeDEF(const std::string& filename);
+    void writeStatistics(const std::string& filename);
 
     // get girdPinAccessBoxes
     // TODO: better way to differetiate same-layer and diff-layer girdPinAccessBoxes

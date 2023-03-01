@@ -1,7 +1,7 @@
 #include "Database.h"
 #include "rsyn/io/parser/lef_def/DEFControlParser.h"
 #include "single_net/PinTapConnector.h"
-
+#include <fstream>
 db::Database database;
 
 namespace db {
@@ -613,6 +613,268 @@ void Database::writeDEFFillRect(Net& dbNet, const utils::BoxT<DBU>& rect, const 
     segment.clsRoutingPoints[0].clsHasRectangle = true;
     segment.clsRoutingPoints[0].clsRect = {0, 0, rect.hx() - rect.lx(), rect.hy() - rect.ly()};
     segment.clsLayerName = getLayer(layerIdx).name;
+}
+
+void Database::writeStatistics(const std::string &filename){
+    vector<std::pair<BoxOnLayer, int>> allRects;
+    vector<std::pair<BoxOnLayer, std::string>> allWires;
+    // STEP 1: get fixed objects
+    // Mark pins associated with nets
+    for (const auto& net : nets) {
+        for (const auto& accessBoxes : net.pinAccessBoxes) {
+            for (const auto& box : accessBoxes) {
+                allRects.emplace_back(box, net.idx);
+            }
+        }
+    }
+    // Mark dangling pins
+    const Rsyn::Session session;
+    const Rsyn::PhysicalDesign& physicalDesign =
+        static_cast<Rsyn::PhysicalService*>(session.getService("rsyn.physical"))->getPhysicalDesign();
+    const DBU libDBU = physicalDesign.getDatabaseUnits(Rsyn::LIBRARY_DBU);
+    unsigned numUnusedPins = 0;
+    unsigned numObs = 0;
+    unsigned numSNetObs = 0;
+    for (Rsyn::Instance instance : rsynService.module.allInstances()) {
+        if (instance.getType() != Rsyn::CELL) continue;
+        // phCell
+        Rsyn::Cell cell = instance.asCell();
+        Rsyn::PhysicalCell phCell = rsynService.physicalDesign.getPhysicalCell(cell);
+        Rsyn::PhysicalLibraryCell phLibCell = rsynService.physicalDesign.getPhysicalLibraryCell(cell);
+        const DBUxy origin(static_cast<DBU>(std::round(phLibCell.getMacro()->originX() * libDBU)),
+                           static_cast<DBU>(std::round(phLibCell.getMacro()->originY() * libDBU)));
+        // libPin
+        for (Rsyn::Pin pin : instance.allPins(false)) {
+            if (!pin.getNet()) {  // no associated net
+                Rsyn::PhysicalLibraryPin phLibPin = rsynService.physicalDesign.getPhysicalLibraryPin(pin);
+                vector<BoxOnLayer> accessBoxes;
+                Net::getPinAccessBoxes(phLibPin, phCell, accessBoxes, origin);
+                for (const auto& box : accessBoxes) {
+                    allRects.emplace_back(box, OBS_NET_IDX);
+                }
+                ++numUnusedPins;
+            }
+        }
+        // libObs
+        DBUxy displacement = phCell.getPosition() + origin;
+        auto transform = phCell.getTransform();
+        for (const Rsyn::PhysicalObstacle& phObs : phLibCell.allObstacles()) {
+            if (phObs.getLayer().getType() != Rsyn::PhysicalLayerType::ROUTING) continue;
+            const int layerIdx = phObs.getLayer().getRelativeIndex();
+            for (auto bounds : phObs.allBounds()) {
+                bounds.translate(displacement);
+                bounds = transform.apply(bounds);
+                const BoxOnLayer box(layerIdx, getBoxFromRsynBounds(bounds));
+                allRects.emplace_back(box, OBS_NET_IDX);
+                ++numObs;
+            }
+        }
+    }
+    // Mark special nets
+    for (Rsyn::PhysicalSpecialNet specialNet : rsynService.physicalDesign.allPhysicalSpecialNets()) {
+        for (const DefWireDscp& wire : specialNet.getNet().clsWires) {
+            for (const DefWireSegmentDscp& segment : wire.clsWireSegments) {
+                int layerIdx =
+                    rsynService.physicalDesign.getPhysicalLayerByName(segment.clsLayerName).getRelativeIndex();
+                const DBU width = segment.clsRoutedWidth;
+                DBUxy pos;
+                DBU ext = 0;
+                for (unsigned i = 0; i != segment.clsRoutingPoints.size(); ++i) {
+                    const DefRoutingPointDscp& pt = segment.clsRoutingPoints[i];
+                    const DBUxy& nextPos = pt.clsPos;
+                    const DBU nextExt = pt.clsHasExtension ? pt.clsExtension : 0;
+                    if (i >= 1) {
+                        for (unsigned dim = 0; dim != 2; ++dim) {
+                            if (pos[dim] == nextPos[dim]) continue;
+                            const DBU l = pos[dim] < nextPos[dim] ? pos[dim] - ext : nextPos[dim] - nextExt;
+                            const DBU h = pos[dim] < nextPos[dim] ? nextPos[dim] + nextExt : pos[dim] + ext;
+                            BoxOnLayer box(layerIdx);
+                            box[dim].Set(l, h);
+                            box[1 - dim].Set(pos[1 - dim] - width / 2, pos[1 - dim] + width / 2);
+                            allRects.emplace_back(box, OBS_NET_IDX);
+                            ++numSNetObs;
+                            break;
+                        }
+                    }
+                    pos = nextPos;
+                    ext = nextExt;
+                    if (!pt.clsHasVia) continue;
+                    const Rsyn::PhysicalVia& via = rsynService.physicalDesign.getPhysicalViaByName(pt.clsViaName);
+                    const int botLayerIdx = via.getBottomLayer().getRelativeIndex();
+                    for (const Rsyn::PhysicalViaGeometry& geo : via.allBottomGeometries()) {
+                        Bounds bounds = geo.getBounds();
+                        bounds.translate(pos);
+                        const BoxOnLayer box(botLayerIdx, getBoxFromRsynBounds(bounds));
+                        allRects.emplace_back(box, OBS_NET_IDX);
+                        ++numSNetObs;
+                    }
+                    const int topLayerIdx = via.getTopLayer().getRelativeIndex();
+                    for (const Rsyn::PhysicalViaGeometry& geo : via.allTopGeometries()) {
+                        Bounds bounds = geo.getBounds();
+                        bounds.translate(pos);
+                        const BoxOnLayer box(topLayerIdx, getBoxFromRsynBounds(bounds));
+                        allRects.emplace_back(box, OBS_NET_IDX);
+                        ++numSNetObs;
+                    }
+                    if (via.hasViaRule()) {
+                        const utils::PointT<int> numRowCol =
+                            via.hasRowCol() ? utils::PointT<int>(via.getNumCols(), via.getNumRows())
+                                            : utils::PointT<int>(1, 1);
+                        BoxOnLayer botBox(botLayerIdx);
+                        BoxOnLayer topBox(topLayerIdx);
+                        for (unsigned dimIdx = 0; dimIdx != 2; ++dimIdx) {
+                            const Dimension dim = static_cast<Dimension>(dimIdx);
+                            const DBU origin = via.hasOrigin() ? pos[dim] + via.getOrigin(dim) : pos[dim];
+                            const DBU botOff =
+                                via.hasOffset() ? origin + via.getOffset(Rsyn::BOTTOM_VIA_LEVEL, dim) : origin;
+                            const DBU topOff =
+                                via.hasOffset() ? origin + via.getOffset(Rsyn::TOP_VIA_LEVEL, dim) : origin;
+                            const DBU length =
+                                (via.getCutSize(dim) * numRowCol[dim] + via.getSpacing(dim) * (numRowCol[dim] - 1)) / 2;
+                            const DBU botEnc = length + via.getEnclosure(Rsyn::BOTTOM_VIA_LEVEL, dim);
+                            const DBU topEnc = length + via.getEnclosure(Rsyn::TOP_VIA_LEVEL, dim);
+                            botBox[dim].Set(botOff - botEnc, botOff + botEnc);
+                            topBox[dim].Set(topOff - topEnc, topOff + topEnc);
+                        }
+                        allRects.emplace_back(botBox, OBS_NET_IDX);
+                        allRects.emplace_back(topBox, OBS_NET_IDX);
+                        numSNetObs += 2;
+                    }
+                    if (layerIdx == botLayerIdx)
+                        layerIdx = topLayerIdx;
+                    else if (layerIdx == topLayerIdx)
+                        layerIdx = botLayerIdx;
+                    else {
+                        log() << "Error: Special net " << specialNet.getNet().clsName << " via " << pt.clsViaName
+                              << " on wrong layer " << layerIdx << std::endl;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // mark normal nets
+    int i = 0;
+    for (Rsyn::Net net: rsynService.module.allNets()) {
+        auto net_name = net.getName();
+        switch(net.getUse()) {
+            case Rsyn::POWER:
+                continue;
+            case Rsyn::GROUND:
+                continue;
+            default:
+                break;
+        }
+        const auto& dbNet = nets[i++];
+        // if the net is not routed, skip it
+        if (dbNet.defWireSegments.empty()) continue;
+        for (const auto& segment : dbNet.defWireSegments){
+            int layerIdx = rsynService.physicalDesign.getPhysicalLayerByName(segment.clsLayerName).getRelativeIndex();
+            const DBU width = database.layers[layerIdx].width;
+            DBUxy pos;
+            DBU ext = 0;
+            for (unsigned i = 0; i!= segment.clsRoutingPoints.size(); ++i){
+                const DefRoutingPointDscp& pt = segment.clsRoutingPoints[i];
+                    const DBUxy& nextPos = pt.clsPos;
+                    const DBU nextExt = pt.clsHasExtension ? pt.clsExtension : 0;
+                    if (i >= 1) {
+                        for (unsigned dim = 0; dim != 2; ++dim) {
+                            if (pos[dim] == nextPos[dim]) continue;
+                            const DBU l = pos[dim] < nextPos[dim] ? pos[dim] - ext : nextPos[dim] - nextExt;
+                            const DBU h = pos[dim] < nextPos[dim] ? nextPos[dim] + nextExt : pos[dim] + ext;
+                            BoxOnLayer box(layerIdx);
+                            box[dim].Set(l, h);
+                            box[1 - dim].Set(pos[1 - dim] - width / 2, pos[1 - dim] + width / 2);
+                            allWires.emplace_back(box, net_name);
+                            ++numSNetObs;
+                            break;
+                        }
+                    }
+                    pos = nextPos;
+                    ext = nextExt;
+                    if (!pt.clsHasVia) continue;
+                    const Rsyn::PhysicalVia& via = rsynService.physicalDesign.getPhysicalViaByName(pt.clsViaName);
+                    const int botLayerIdx = via.getBottomLayer().getRelativeIndex();
+                    for (const Rsyn::PhysicalViaGeometry& geo : via.allBottomGeometries()) {
+                        Bounds bounds = geo.getBounds();
+                        bounds.translate(pos);
+                        const BoxOnLayer box(botLayerIdx, getBoxFromRsynBounds(bounds));
+                        allWires.emplace_back(box, net_name);
+                        ++numSNetObs;
+                    }
+                    const int topLayerIdx = via.getTopLayer().getRelativeIndex();
+                    for (const Rsyn::PhysicalViaGeometry& geo : via.allTopGeometries()) {
+                        Bounds bounds = geo.getBounds();
+                        bounds.translate(pos);
+                        const BoxOnLayer box(topLayerIdx, getBoxFromRsynBounds(bounds));
+                        allWires.emplace_back(box, net_name);
+                        ++numSNetObs;
+                    }
+                    if (via.hasViaRule()) {
+                        const utils::PointT<int> numRowCol =
+                            via.hasRowCol() ? utils::PointT<int>(via.getNumCols(), via.getNumRows())
+                                            : utils::PointT<int>(1, 1);
+                        BoxOnLayer botBox(botLayerIdx);
+                        BoxOnLayer topBox(topLayerIdx);
+                        for (unsigned dimIdx = 0; dimIdx != 2; ++dimIdx) {
+                            const Dimension dim = static_cast<Dimension>(dimIdx);
+                            const DBU origin = via.hasOrigin() ? pos[dim] + via.getOrigin(dim) : pos[dim];
+                            const DBU botOff =
+                                via.hasOffset() ? origin + via.getOffset(Rsyn::BOTTOM_VIA_LEVEL, dim) : origin;
+                            const DBU topOff =
+                                via.hasOffset() ? origin + via.getOffset(Rsyn::TOP_VIA_LEVEL, dim) : origin;
+                            const DBU length =
+                                (via.getCutSize(dim) * numRowCol[dim] + via.getSpacing(dim) * (numRowCol[dim] - 1)) / 2;
+                            const DBU botEnc = length + via.getEnclosure(Rsyn::BOTTOM_VIA_LEVEL, dim);
+                            const DBU topEnc = length + via.getEnclosure(Rsyn::TOP_VIA_LEVEL, dim);
+                            botBox[dim].Set(botOff - botEnc, botOff + botEnc);
+                            topBox[dim].Set(topOff - topEnc, topOff + topEnc);
+                        }
+                        allWires.emplace_back(botBox, net_name);
+                        allWires.emplace_back(topBox, net_name);
+                        numSNetObs += 2;
+                    }
+                    if (layerIdx == botLayerIdx)
+                        layerIdx = topLayerIdx;
+                    else if (layerIdx == topLayerIdx)
+                        layerIdx = botLayerIdx;
+                    else {
+                        log() << "Error:  net " << dbNet.getName() << " via " << pt.clsViaName
+                              << " on wrong layer " << layerIdx << std::endl;
+                        break;
+                    }
+                
+            }
+
+        }
+
+
+
+
+    }
+
+
+    std::ofstream fout(filename);
+    fout << "NumObs: " << allRects.size() << std::endl;
+    fout << "NumNetObs: " << allWires.size() << std::endl;
+
+    // Sort by layer
+    std::sort(allRects.begin(), allRects.end(), [](const auto& a, const auto& b) {
+        return a.first.layerIdx < b.first.layerIdx;
+    });
+    std::sort(allWires.begin(), allWires.end(), [](const auto& a, const auto& b) {
+        return a.first.layerIdx < b.first.layerIdx;
+    });
+    for (const auto& [box, netIdx] : allRects) {
+        fout << "Obs: " << box.layerIdx << " " << box[0].low << " " << box[1].low << " " << box[0].high << " "
+             << box[1].high << " " << netIdx << std::endl;
+    }
+    for (const auto& [box, netIdx] : allWires) {
+        fout << "Obs: " << box.layerIdx << " " << box[0].low << " " << box[1].low << " " << box[0].high << " "
+             << box[1].high << " " << netIdx << std::endl;
+    }
+
 }
 
 void Database::getGridPinAccessBoxes(const Net& net, vector<vector<db::GridBoxOnLayer>>& gridPinAccessBoxes) const {

@@ -60,7 +60,8 @@ void Router::run() {
             db::rrrIterSetting.print();
         }
         route(netsToRoute);
-        recordNetsToRoute_after(netsToRoute, iter);
+        //TODO: if check each iter
+        // recordNetsToRoute_after(netsToRoute, iter);
         log() << std::endl;
         log() << "Finish RRR iteration " << iter << std::endl;
         log() << "MEM: cur=" << utils::mem_use::get_current() << "MB, peak=" << utils::mem_use::get_peak() << "MB"
@@ -73,6 +74,13 @@ void Router::run() {
             printlog("Write result of RRR iter", iter, "to", fn, "...");
             finish();
             database.writeDEF(fn);
+            unfinish();
+        }
+        if (db::setting.rrrStatiscsEachIter) {
+            std::string fn = "iter" + std::to_string(iter) + "_" + db::setting.outputFile + ".stat";
+            printlog("Write statistics of RRR iter", iter, "to", fn, "...");
+            finish();
+            database.writeStatistics(fn);
             unfinish();
         }
     }

@@ -24,6 +24,7 @@ public:
     bool rrrWriteEachIter = false;
     double rrrInitVioCostDiscount = 0.1;
     double rrrFadeCoeff = 0.01;  // should be <= 0.5 to make sure fade/(1-fade) <= 1
+    bool rrrStatiscsEachIter = true;
 
     // single_net
     VerboseLevelT singleNetVerbose = VerboseLevelT::MIDDLE;
