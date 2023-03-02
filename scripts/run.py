@@ -42,6 +42,7 @@ def route():
 
     run('mv *.solution.def* *.log *.gprof *.pdf {} 2>/dev/null'.format(bm_log_dir))
     run('cp {0}.input.lef {1} 2>/dev/null'.format(file_name_prefix,bm_log_dir))
+    run('cp {0}.input.def {1} 2>/dev/null'.format(file_name_prefix,bm_log_dir))
 
 
 def evaluate():
